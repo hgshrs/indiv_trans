@@ -145,8 +145,7 @@ if __name__=='__main__':
     a, b = dfb.query('model=="cgm" & dom_src==2 & org_opp=="org"'), dfb.query('model=="edm" & dom_src==2 & org_opp=="org"')
     b1, b2 = plot_paired(a, b, 2.5)
     plt.xticks([.5, 3.0], [r'3$\rightarrow$2-step', r'2$\rightarrow$3-step'])
-    # plt.legend([b1[0], b2[0]], ['Cognitive model', 'Encoder-decoder'], loc='lower right')
-    lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Cognitive model', 'Encoder-decoder'], loc='lower left'); lg.set_zorder(20)
+    lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Cognitive model', 'EIDT'], loc='lower left'); lg.set_zorder(20)
     plt.savefig('figs/loss_org_model.pdf', bbox_inches='tight', transparent=True)
 
 
