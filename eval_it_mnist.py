@@ -110,8 +110,6 @@ def viz_z_partici(z_partici, fig):
             ax.set_ylabel('$z_{}$'.format(b))
 
 if __name__ == '__main__':
-    # os.system('rsync -avzh --delete-excluded higashi@192.168.100.100:/home/higashi/Research/20250109_rtnet/tmp/edm_dses.* ~/Research/20250109_rtnet/tmp/')
-
     # Script settings
     parser = argparse.ArgumentParser(description='Evaluate the encoder-decoder model')
     parser.add_argument('--dry-run', action='store_true', default=False,
