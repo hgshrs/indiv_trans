@@ -15,6 +15,7 @@ import copy
 import pandas as pd
 import n_choice_markov as mdp
 importlib.reload(mdp)
+import os
 
 
 def init_nets(dim_state, n_actions_trg, n_steps_src, n_steps_trg,
@@ -168,9 +169,13 @@ class DL(nn.Module):
     def forward(self, x):
         return self.dense(x)
 
-def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actnet, losses, n_epochs, mp, n_gen_episodes, net_path='', batch_size=0, lr=1e-3, device='cpu', sp_intv=5, sp_intv_rew=0, parallel=True, n_samples_mmd=1000):
-    loss = losses[0]
+def train_net(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actnet, losses, rew_rates, n_epochs, mp, n_gen_episodes, net_path='', batch_size=0, lr=1e-3, device='cpu', sp_intv=5, sp_intv_rew=0, parallel=True):
+    train_loss = losses[0]
     valid_loss = losses[1]
+    n_done_epochs = len(train_loss)
+    rew_epochs = rew_rates[0]
+    train_rew = rew_rates[1]
+    valid_rew = rew_rates[2]
     dim_z = enc.output_size
     if sp_intv_rew == 0:
         sp_intv_rew = n_epochs
@@ -204,14 +209,10 @@ def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actn
     x_trg_valid, y_trg_valid, seqs_trg_valid = out_seqs_each_agent(df_trg_valid, device)
 
     # Losses
-    f_loss_fidelity = nn.BCELoss() # reconstruction loss
+    f_loss = nn.BCELoss() # reconstruction loss
 
-    rew_rate_train = np.zeros([n_epochs, len(agents_train)])
-    rew_rate_train[:] = np.nan
-    rew_rate_valid = np.zeros([n_epochs, len(agents_valid)])
-    rew_rate_valid[:] = np.nan
-    if len(loss) > 0:
-        train_loss_min = np.min(loss)
+    if len(train_loss) > 0:
+        train_loss_min = np.min(train_loss)
         valid_loss_min = np.min(valid_loss)
     else:
         train_loss_min = np.inf
@@ -220,6 +221,7 @@ def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actn
         running_loss = 0.
         running_valid_loss = 0.
         for x, y in dl_src_train:
+
             # ==========================
             # train
             # ==========================
@@ -245,8 +247,8 @@ def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actn
                 act_pred.append(_act_pred)
             act_real = torch.stack(act_real)
             act_pred = torch.stack(act_pred)
-            batch_loss_fidelity = f_loss_fidelity(act_pred, act_real)
-            l = batch_loss_fidelity
+            batch_loss = f_loss(act_pred, act_real)
+            l = batch_loss
             l.backward()
             opt_enc.step()
             opt_dec.step()
@@ -269,12 +271,12 @@ def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actn
                 act_pred.append(_act_pred)
             act_real = torch.stack(act_real)
             act_pred = torch.stack(act_pred)
-            batch_loss_fidelity = f_loss_fidelity(act_pred, act_real)
+            batch_loss = f_loss(act_pred, act_real)
 
-            l = batch_loss_fidelity
+            l = batch_loss
             running_valid_loss += l.item() / n_batches
 
-        loss.append(running_loss)
+        train_loss.append(running_loss)
         valid_loss.append(running_valid_loss)
 
         enc.eval()
@@ -285,14 +287,17 @@ def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actn
                 saving_vars = {
                         'enc':enc.state_dict(),
                         'dec':dec.state_dict(),
-                        'loss':loss,
+                        'train_loss':train_loss,
                         'valid_loss':valid_loss,
+                        'rew_epochs':rew_epochs,
+                        'train_rew':train_rew,
+                        'valid_rew':valid_rew,
                         }
                 torch.save(saving_vars, net_path + '.latest')
 
-                if loss[-1] < train_loss_min:
+                if train_loss[-1] < train_loss_min:
                     torch.save(saving_vars, net_path + '.train')
-                    train_loss_min = loss[-1]
+                    train_loss_min = train_loss[-1]
 
                 if valid_loss[-1] < valid_loss_min:
                     torch.save(saving_vars, net_path + '.valid')
@@ -300,30 +305,32 @@ def train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actn
 
         if (ee + 1) % sp_intv == 0:
             plt.figure(1); plt.subplot(121); plt.gca().cla()
-            plt.semilogy(loss_fidelity)
-            plt.semilogy(valid_loss_fidelity)
-            plt.title('Fidelity')
+            plt.semilogy(train_loss, label='train')
+            plt.semilogy(valid_loss, label='valid')
+            plt.legend()
+            plt.title('Loss')
+            plt.pause(.01)
 
         if (ee + 1) % sp_intv_rew == 0:
             # different-block valiation for decoder and action-net
-            rew_rate_train[ee], n_agents_train_ = out_rew_rate(seqs_trg_train, enc, dec, actnet, mp, n_gen_episodes, n_max_agent=16)
-            rew_rate_valid[ee], n_agents_valid_ = out_rew_rate(seqs_trg_valid, enc, dec, actnet, mp, n_gen_episodes, n_max_agent=16)
+            rew_rate_train, n_agents_train_ = out_rew_rate(seqs_trg_train, enc, dec, actnet, mp, n_gen_episodes)
+            rew_rate_valid, n_agents_valid_ = out_rew_rate(seqs_trg_valid, enc, dec, actnet, mp, n_gen_episodes)
+            rew_epochs.append(n_done_epochs + ee + 1)
+            train_rew.append(rew_rate_train[:n_agents_train_].mean())
+            valid_rew.append(rew_rate_valid[:n_agents_valid_].mean())
 
             # plt.figure(3).clf()
             plt.figure(1);
             plt.subplot(122); plt.gca().cla()
-            _epoch = np.arange(n_epochs)[np.logical_not(np.isnan(rew_rate_train[:, 0]))]
-            _rew_rate_train = rew_rate_train[np.logical_not(np.isnan(rew_rate_train[:, 0]))]
-            plt.plot(_epoch, _rew_rate_train[:, :n_agents_train_].mean(1), 'k-')
-
-            _rew_rate_valid = rew_rate_valid[np.logical_not(np.isnan(rew_rate_valid[:, 0]))]
-            plt.plot(_epoch, _rew_rate_valid[:, :n_agents_valid_].mean(1), 'm-')
+            plt.plot(rew_epochs, train_rew, label='train')
+            plt.plot(rew_epochs, valid_rew, label='valid')
+            plt.legend()
             plt.ylabel('Percentage reward')
             plt.pause(.01)
 
-def out_rew_rate(seqs_each_agent, enc, dec, actnet, mp, n_gen_episodes, n_max_agent=16, parallel=True):
+def out_rew_rate(seqs_each_agent, enc, dec, actnet, mp, n_gen_episodes, parallel=True):
     agents = list(seqs_each_agent.keys())
-    n_agents = np.min([len(agents), n_max_agent])
+    n_agents = len(agents)
     if parallel:
         res = joblib.Parallel(n_jobs=-1)(joblib.delayed(generate_seq)(agent, seqs_each_agent, enc, dec, actnet, mp, n_gen_episodes) for agent in agents[:n_agents])
     else:
@@ -348,7 +355,6 @@ def generate_seq(agent_label, trg_seqs, enc, dec, actnet, mp, n_episodes=100):
     return genseq
 
 def valid_trg(ss, seq_agent_labels, trg_seqs, actnet, w, n_actions_trg):
-    # _batch_loss_fidelity = 0.
     _, params = put_w2net(actnet, w[ss])
     id_ = agent_idx2id[seq_agent_labels[ss]]
     x, y = trg_seqs[id_]
@@ -383,9 +389,7 @@ def show_prob(dfs):
         n_agents = len(dfs[key]['agent'].unique())
         print('{}:\t{}'.format(key, n_agents))
 
-def split_ids(df_path, sp_tvt, n_agents=0):
-    df = pd.read_csv(df_path)
-    pids = df['id'].unique()
+def split_ids(pids, sp_tvt, n_agents=0):
     if n_agents > 0:
         pids = pids[:n_agents]
     np.random.shuffle(pids)
@@ -398,12 +402,27 @@ def split_ids(df_path, sp_tvt, n_agents=0):
     pids_test = pids[int(np.sum(sp_tvt[:2]) / np.sum(sp_tvt) * len(pids)):]
     iddf_test = pd.DataFrame(pids_test, columns=['id'])
     iddf_test['set'] = 'test'
-    iddf_tvt = pd.concat([iddf_train, iddf_valid, iddf_test], axis=0).reset_index()
-    iddf_tvt.to_csv('tmp/split_{}_train_valid_test.csv'.format(ds_test), index=False)
+    iddf_tvt = pd.concat([iddf_train, iddf_valid, iddf_test], axis=0).reset_index(drop=True)
     return iddf_tvt
 
-def load_df(df_path, n_steps, ids, n_blocks):
+def leave_one_participant_id(pids, leave_pid, sp_tv=[.8, .2]):
+    pids_ = copy.copy(pids)
+    if leave_pid == 'none':
+        iddf = split_ids(pids_, sp_tvt=sp_tv + [.0])
+        iddf = iddf.reset_index(drop=True)
+    else:
+        pids_.remove(leave_pid)
+        iddf = split_ids(pids_, sp_tvt=sp_tv + [.0])
+        iddf_test = pd.DataFrame([leave_pid], columns=['id'])
+        iddf_test['set'] = 'test'
+        iddf = pd.concat([iddf, iddf_test], axis=0)
+        iddf = iddf.reset_index(drop=True)
+    return iddf
+
+def load_df(df_path, n_steps, ids=[], n_blocks=3):
     df_all = pd.read_csv(df_path)
+    if len(ids) == 0:
+        ids = df_all['id'].unique()
     df = df_all.query('id in @ids')
     df = df[df['n_steps'] == n_steps]
     df = df[df['block'] < n_blocks]
@@ -564,35 +583,41 @@ class actnet2agent():
         self.hs = None
         self.q = {}
 
-def load_net(enc, dec, net_path, fmark='', reset=False, device='cpu', verbose=False):
-    loss = []
+def load_net(enc, dec, net_path, suffix='', reset=False, device='cpu', verbose=False):
+    train_loss = []
     valid_loss = []
+    rew_epochs = []
+    train_rew = []
+    valid_rew = []
     if reset:
         if verbose:
-            print('Reset the networks for {}{}'.format(net_path, fmark))
+            print('Reset the networks for {}{}'.format(net_path, suffix))
     else:
         enc_load = False
         dec_load = False
         try:
-            mm = torch.load(net_path + fmark, weights_only=True, map_location=torch.device(device))
+            mm = torch.load(net_path + suffix, weights_only=False, map_location=torch.device(device))
             enc.load_state_dict(mm['enc'])
             if verbose:
                 enc_load = True
             dec.load_state_dict(mm['dec'])
             if verbose:
                 dec_load = True
-            loss = mm['loss']
+            train_loss = mm['train_loss']
             valid_loss = mm['valid_loss']
+            rew_epochs = mm['rew_epochs']
+            train_rew = mm['train_rew']
+            valid_rew = mm['valid_rew']
             if verbose:
-                print('Loaded {}{}\tat {} epoch'.format(net_path, fmark, len(loss)))
+                print('Loaded {}{} at {} epoch'.format(net_path, suffix, len(train_loss)))
         except:
             if verbose:
-                print('Failed to loading {}{}'.format(net_path, fmark))
+                print('Failed to load: {}{}'.format(net_path, suffix))
                 if enc_load:
                     print('Encoder loaded.')
                 if dec_load:
                     print('Decoder loaded.')
-    return enc, dec, [loss, valid_loss]
+    return enc, dec, [train_loss, valid_loss], [rew_epochs, train_rew, valid_rew]
 
 def out_agent_idx2id(df, dict2={}):
     for id_ in df['id'].unique():
@@ -601,16 +626,14 @@ def out_agent_idx2id(df, dict2={}):
     return dict2
 
 if __name__=='__main__':
-    np.random.seed(2)
-    n_agents = 200
+    np.random.seed(0)
     n_steps_src = 2
     n_steps_trg = 3
-    # n_blocks = 1
     n_blocks = 3
-    n_epochs = 80000
-    net_path = 'tmp/checkpoints/mdp_{}_s{}_s{}.pth'.format('bhv', n_steps_src, n_steps_trg)
-    fmark = '.valid'
-    sp_tvt = [7, 1, 2] # ratio for train/valid/test agents
+    n_epochs = 5000
+    # n_epochs = 100
+    df_path = './data/bhv_mdp2.csv'
+    suffix = '.valid'
     lr = 1e-5 # learning rate for NN optimizers
     n_gen_episodes = 100
     parallel = True
@@ -620,19 +643,36 @@ if __name__=='__main__':
         device = 'cpu'
     print('Device: {}'.format(device))
 
-    df_path = './data/bhv_mdp2.csv'
-    # split_ids(df_path, sp_tvt, n_agents=n_agents); sys.exit()
-    iddf = pd.read_csv('tmp/split_{}_train_valid_test.csv'.format('bhv'))
-    df_src_train, n_actions_src = load_df(df_path, n_steps_src, iddf[iddf['set'] == 'train']['id'], n_blocks)
-    df_src_valid, _ = load_df(df_path, n_steps_src, iddf[iddf['set'] == 'valid']['id'], n_blocks)
-    df_trg_train, n_actions_trg  = load_df(df_path, n_steps_trg, iddf[iddf['set'] == 'train']['id'], n_blocks)
-    df_trg_valid, _ = load_df(df_path, n_steps_trg, iddf[iddf['set'] == 'valid']['id'], n_blocks)
-    agent_idx2id = out_agent_idx2id(df_src_train)
-    agent_idx2id = out_agent_idx2id(df_src_valid, agent_idx2id)
-    mp_trg = mdp.mk_default_mdp(n_steps=n_steps_trg)
-    s2o = state2onehot(max_n_steps=3)
-    dim_state = s2o.len
+    df = pd.read_csv(df_path)
+    pids = list(df['id'].unique())
+    for leave_pid in pids:
+    # for leave_pid in ['none']:
+        iddf_path = 'tmp/split_leave_{}.csv'.format(leave_pid)
+        try:
+            iddf = pd.read_csv(iddf_path)
+            print('Loaded {}'.format(iddf_path))
+        except:
+            iddf = leave_one_participant_id(pids, leave_pid, sp_tv=[.9, .1])
+            iddf.to_csv(iddf_path, index=False)
+            print('Created {}'.format(iddf_path))
 
-    enc, dec, actnet = init_nets(dim_state, n_actions_trg, n_steps_src, n_steps_trg, device=device, verbose=True)
-    enc, dec, losses = load_net(enc, dec, net_path, fmark, device=device, verbose=True)
-    train(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actnet, losses, n_epochs, mp_trg, n_gen_episodes, net_path, batch_size=0, lr=lr, device=device, sp_intv=50, sp_intv_rew=0, parallel=parallel)
+        net_path = 'tmp/mdp_it_s{}_s{}_leave_{}.pth'.format(n_steps_src, n_steps_trg, leave_pid)
+        df_src_train, n_actions_src = load_df(df_path, n_steps_src, iddf[iddf['set'] == 'train']['id'], n_blocks)
+        df_src_valid, _ = load_df(df_path, n_steps_src, iddf[iddf['set'] == 'valid']['id'], n_blocks)
+        df_trg_train, n_actions_trg  = load_df(df_path, n_steps_trg, iddf[iddf['set'] == 'train']['id'], n_blocks)
+        df_trg_valid, _ = load_df(df_path, n_steps_trg, iddf[iddf['set'] == 'valid']['id'], n_blocks)
+        agent_idx2id = out_agent_idx2id(df_src_train)
+        agent_idx2id = out_agent_idx2id(df_src_valid, agent_idx2id)
+        mp_trg = mdp.mk_default_mdp(n_steps=n_steps_trg)
+        s2o = state2onehot(max_n_steps=3)
+        dim_state = s2o.len
+
+        enc, dec, actnet = init_nets(dim_state, n_actions_trg, n_steps_src, n_steps_trg, device=device, verbose=False)
+        enc, dec, losses, rew_rates = load_net(enc, dec, net_path, suffix, device=device, verbose=True)
+        losses = [[], []]
+        rew_rates = [[], [], []]
+        n_done_epochs = len(losses[0])
+        if n_epochs - n_done_epochs > 0:
+            train_net(df_src_train, df_src_valid, df_trg_train, df_trg_valid, enc, dec, actnet, losses, rew_rates,
+                    n_epochs - n_done_epochs, mp_trg, n_gen_episodes, net_path, batch_size=0, lr=lr,
+                    device=device, sp_intv=100, sp_intv_rew=500, parallel=parallel)

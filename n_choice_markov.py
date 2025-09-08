@@ -177,8 +177,8 @@ class q_agent():
             m /= m.sum()
         act = np.random.choice(avail_acts, p=m)
         prob = {}
-        for aa, act in enumerate(avail_acts):
-            prob[act] = m[aa]
+        for aa, _act in enumerate(avail_acts):
+            prob[_act] = m[aa]
         return act, prob
 
     def out_q(self, state, act):
@@ -238,7 +238,8 @@ def sim(mp, ag, start_state=(0, 0), mpseries=[], verbose=False, viz_ax=None):
     return prob_trans, state, act, rew, q, trans_change
 
 def trans_txt2prob(txt, prob_trans):
-    tl = txt.split('_')[1:]
+    # tl = txt.split('_')[1:]
+    tl = [txt[1], txt[2], txt[4], txt[6], txt[7]]
     tl = [int(s) for s in tl]
     return prob_trans[(tl[0], tl[1])][tl[2]][(tl[3], tl[4])]
 
@@ -247,7 +248,7 @@ def q_txt2q(txt, q):
     tl = [int(s) for s in tl]
     return q[(tl[0], tl[1])][tl[2]]
 
-def generate_seq(ag, mp, n_episodes=100, mpdf=[], verbose=False, ax=None):
+def generate_seq(ag, mp, n_episodes=100, mpdf=[], verbose=False, ax=None, pid='abcd'):
     n_steps = mp.n_steps
     if len(mpdf) > 0:
         n_episodes = len(mpdf['episode'].unique())
@@ -280,7 +281,8 @@ def generate_seq(ag, mp, n_episodes=100, mpdf=[], verbose=False, ax=None):
     for s0 in list(ep_trans[-1, -1].keys()):
         for a in list(ep_trans[-1, -1][s0].keys()):
             for s1 in list(ep_trans[-1, -1][s0][a].keys()):
-                trans_txt = 'trans_{}_{}_{}_{}_{}'.format(s0[0], s0[1], a, s1[0], s1[1])
+                # trans_txt = 'trans_{}_{}_{}_{}_{}'.format(s0[0], s0[1], a, s1[0], s1[1])
+                trans_txt = 's{}{}a{}s{}{}'.format(s0[0], s0[1], a, s1[0], s1[1])
                 data[trans_txt] = []
     data['state0'] = []
     data['state1'] = []
@@ -298,7 +300,8 @@ def generate_seq(ag, mp, n_episodes=100, mpdf=[], verbose=False, ax=None):
             for s0 in list(ep_trans[-1, -1].keys()):
                 for a in list(ep_trans[-1, -1][s0].keys()):
                     for s1 in list(ep_trans[ee, -1][s0][a].keys()):
-                        trans_txt = 'trans_{}_{}_{}_{}_{}'.format(s0[0], s0[1], a, s1[0], s1[1])
+                        # trans_txt = 'trans_{}_{}_{}_{}_{}'.format(s0[0], s0[1], a, s1[0], s1[1])
+                        trans_txt = 's{}{}a{}s{}{}'.format(s0[0], s0[1], a, s1[0], s1[1])
                         data[trans_txt].append(trans_txt2prob(trans_txt, ep_trans[ee, ss]))
             data['state0'].append(ep_state[ee, ss][0])
             data['state1'].append(ep_state[ee, ss][1])
@@ -314,6 +317,7 @@ def generate_seq(ag, mp, n_episodes=100, mpdf=[], verbose=False, ax=None):
     # for key in list(data.keys()):
         # print(key, len(data[key]))
     df = pd.DataFrame(data)
+    df['id'] = pid
     if verbose:
         print(df)
     return df

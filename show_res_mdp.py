@@ -1,4 +1,5 @@
 import sys
+import importlib
 import pandas as pd
 import scipy.stats
 import matplotlib.pylab as plt
@@ -14,6 +15,10 @@ plt.rcParams['text.latex.preamble'] = "\\usepackage{sfmath}"
 import warnings
 warnings.simplefilter('ignore', FutureWarning)
 print('FutureWaning is diabled')
+import train_it_mdp as sv
+importlib.reload(sv)
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
 
 def remove_ss_cmbs(cmbs, removing_cmbs=[(2, 2), (3, 3)]):
     for removing_cmb in removing_cmbs:
@@ -30,10 +35,11 @@ def store_anova_table_a(dft, _df, model):
     dft_['model'] = model
     dft_['org_opp'] = 'org'
     dft_['nllik'] = _df['nllik_org']
+    dft_['match'] = _df['match_org']
     dft = pd.concat([dft, dft_], axis=0)
-    dft_['org_opp'] = 'opp'
-    dft_['nllik'] = _df['nllik_opp']
-    dft = pd.concat([dft, dft_], axis=0)
+    # dft_['org_opp'] = 'opp'
+    # dft_['nllik'] = _df['nllik_opp']
+    # dft = pd.concat([dft, dft_], axis=0)
     return dft
 
 def store_anova_table_b(dft, _df, model):
@@ -44,45 +50,61 @@ def store_anova_table_b(dft, _df, model):
     dft_['model'] = model
     dft_['org_opp'] = 'org'
     dft_['nllik'] = _df['nllik_org']
+    dft_['match'] = _df['match_org']
     dft = pd.concat([dft, dft_], axis=0)
     dft_['org_opp'] = 'opp'
     dft_['nllik'] = _df['nllik_opp']
+    dft_['match'] = _df['match_opp']
     dft = pd.concat([dft, dft_], axis=0)
     return dft
 
-def plot_paired(a, b, x, ticks=[], xlabel='Task transfer set', ylabel='Negative log-likelihood'):
-    # b1 = plt.bar(x+0, a['nllik'].mean(), yerr=a['nllik'].std(), ec='k', fc='w')
-    # b2 = plt.bar(x+1, b['nllik'].mean(), yerr=b['nllik'].std(), ec='k', fc='gray')
-    boxplot_params = {'widths':[.8], 'whis':[0, 100], 'patch_artist':True, 'showfliers':False}
-    b1 = plt.boxplot(a['nllik'], positions=[x], **boxplot_params)
-    b2 = plt.boxplot(b['nllik'], positions=[x+1], **boxplot_params)
+def plot_paired(a, b, x, var='nllik', ticks=[], xlabel='Task transfer set', ylabel='Negative log-likelihood', show_indiv=True, whis=[0, 100]):
+    boxplot_params = {'widths':[.8], 'whis':whis, 'patch_artist':True, 'showfliers':False}
+    b1 = plt.boxplot(a[var], positions=[x], **boxplot_params)
+    b2 = plt.boxplot(b[var], positions=[x+1], **boxplot_params)
     b1['boxes'][0].set_facecolor('white')
     b2['boxes'][0].set_facecolor('gray')
-    for id_ in a['id']:
-        a_ = a[a['id'] == id_].iloc[0]['nllik']
-        b_ = b[b['id'] == id_].iloc[0]['nllik']
-        # plt.plot([x+.2, x+.8], [a_, b_], 'o-k', alpha=.2)
-        plt.plot([x+.2, x+.8], [a_, b_], '-k', lw=.2, zorder=10)
-        plt.plot([x+.2, x+.8], [a_, b_], 'ok', mfc='w', zorder=11)
+    if show_indiv:
+        for id_ in a['id']:
+            a_ = a[a['id'] == id_].iloc[0][var]
+            b_ = b[b['id'] == id_].iloc[0][var]
+            # plt.plot([x+.2, x+.8], [a_, b_], 'o-k', alpha=.2)
+            plt.plot([x+.2, x+.8], [a_, b_], '-k', lw=.2, zorder=10)
+            plt.plot([x+.2, x+.8], [a_, b_], 'ok', mfc='w', zorder=11)
     if len(ticks) == 2:
         plt.xticks([x+0, x+1], ticks)
     elif len(ticks) == 1:
         plt.xticks([x + .5], ticks)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
-    plt.ylim(ylim)
+    # plt.ylim(ylim)
     plt.gca().spines['right'].set_visible(False)
     plt.gca().spines['top'].set_visible(False)
     return b1, b2
 
 
 if __name__=='__main__':
-    sets = ['test']
+    df = pd.read_csv('./data/bhv_mdp2.csv')
+    ids = list(df['id'].unique())
+    figure_n = 0
+    axlabels = {
+            'nllik':'Negative log-likelihood',
+            'match': 'Rate for behav matched',
+            'diff_rew':'Error in total reward',
+            'diff_per':'Error in high-rew selected',
+            'z1':r'$z_1$',
+            'z2':r'$z_2$',
+            'alpha':r'Learning rate $q_\mathrm{lr}$',
+            'beta':r'Inverse temperature $q_\mathrm{it}$',
+            'gamma':r'Discount rate $q_\mathrm{dr}$',
+            'init_q':r'Initialized value for $Q$ $q_\mathrm{init}$',
+            }
+    ylims = {'nllik':[.2, 1.], 'match': [.37, .9]}
 
-    print('Set: {}'.format(sets))
-    iddf = pd.read_csv('tmp/split_{}_train_valid_test.csv'.format('bhv'))
-    ids = iddf.query('set in @sets')['id']
-
+    # =================================
+    # Evaluation in Situation SX (no transfer)
+    # =================================
+    '''
     # Get Situation SX
     doms_src = [2, 3]
     res_cdm = pd.read_csv('tmp/qagent_nllik_a.csv').drop_duplicates(subset=['id', 'n_steps'], keep='last', ignore_index=True)
@@ -97,26 +119,33 @@ if __name__=='__main__':
         dfa = store_anova_table_a(dfa, _df, 'act')
     dfa = dfa[dfa['org_opp'] == 'org']
 
-    # Evaluate Situation SA
-    ylim = [.2, .85]
-    kwargs = {'dv':'nllik', 'padjust':'bonf', 'parametric':True, 'alternative':'less'}
-    print('\nANOVA and multicomparison cmparing CG vs TS')
-    aov = pg.rm_anova(data=dfa[dfa['org_opp'] == 'org'], dv='nllik', subject='id', within=['model', 'dom'])
-    print(aov.round(3))
-    post_hocs = pg.pairwise_tests(data=dfa[dfa['org_opp'] == 'org'], within=['dom', 'model'], subject='id', **kwargs)
-    print(post_hocs.round(3))
+    # ylim = [.2, .85]
+    for vv, var in enumerate(['nllik', 'match']):
+        kwargs = {'dv':var, 'padjust':'bonf', 'parametric':True, 'alternative':'two-sided'}
+        print('\nANOVA and multicomparison cmparing CG vs TS in {}'.format(var))
+        aov = pg.rm_anova(data=dfa[dfa['org_opp'] == 'org'], dv=var, subject='id', within=['model', 'dom'])
+        print(aov.round(3))
+        post_hocs = pg.pairwise_tests(data=dfa[dfa['org_opp'] == 'org'], within=['dom', 'model'], subject='id', **kwargs)
+        print(post_hocs.round(3))
 
-    plt.figure(0).clf()
-    a, b = dfa.query('model=="cgm" & dom==2 & org_opp=="org"'), dfa.query('model=="act" & dom==2 & org_opp=="org"')
-    plot_paired(a, b, 0)
-    a, b = dfa.query('model=="cgm" & dom==3 & org_opp=="org"'), dfa.query('model=="act" & dom==3 & org_opp=="org"')
-    b1, b2 = plot_paired(a, b, 2.5)
-    plt.xticks([.5, 3.0], ['2-step', '3-step'])
-    # plt.legend([b1[0], b2[0]], ['Cognitive model', 'Task solver'], loc='lower right')
-    lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Cognitive model', 'Task solver'], loc='lower left'); lg.set_zorder(20)
-    plt.xlabel('Task')
-    plt.savefig('figs/loss_sa.pdf', bbox_inches='tight', transparent=True)
+        plt.figure(figure_n).clf(); figure_n += 1
+        a, b = dfa.query('model=="cgm" & dom==2 & org_opp=="org"'), dfa.query('model=="act" & dom==2 & org_opp=="org"')
+        plot_paired(a, b, 0, var, ylabel=axlabels[var])
+        a, b = dfa.query('model=="cgm" & dom==3 & org_opp=="org"'), dfa.query('model=="act" & dom==3 & org_opp=="org"')
+        b1, b2 = plot_paired(a, b, 2.5, var, ylabel=axlabels[var])
+        plt.xticks([.5, 3.0], ['2-step', '3-step'])
+        # plt.legend([b1[0], b2[0]], ['Cognitive model', 'Task solver'], loc='lower right')
+        if var == 'nllik':
+            lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Cognitive model', 'Task solver'], loc='upper right'); lg.set_zorder(20)
+        plt.xlabel('Task')
+        plt.ylim(ylims[var])
+        plt.savefig('figs/loss_sa_{}.pdf'.format(var), bbox_inches='tight', transparent=True)
+    '''
 
+    # =================================
+    # Evaluation in Situation SY (task transfer)
+    # =================================
+    '''
     # Get Situation SY
     doms_src = [2, 3]
     doms_trg = [2, 3]
@@ -131,39 +160,263 @@ if __name__=='__main__':
         _df = res_edm.query('id in @ids & n_steps_src == @dom_src & n_steps_trg == @dom_trg').sort_values(by='id')
         dfb = store_anova_table_b(dfb, _df, 'edm')
 
-    # Evaluate Situation SB
-    kwargs = {'dv':'nllik', 'padjust':'bonf', 'parametric':True, 'alternative':'greater'}
-    print('\nANOVA and multicomparison cmparing CG vs ED')
-    aov = pg.rm_anova(data=dfb[dfb['org_opp'] == 'org'], dv='nllik', subject='id', within=['model', 'dom_src'])
-    print(aov.round(3))
-    post_hocs = pg.pairwise_tests(data=dfb[dfb['org_opp'] == 'org'], within=['dom_src', 'model'], subject='id', **kwargs)
-    print(post_hocs.round(3))
-
-    plt.figure(1).clf()
-    a, b = dfb.query('model=="cgm" & dom_src==3 & org_opp=="org"'), dfb.query('model=="edm" & dom_src==3 & org_opp=="org"')
-    plot_paired(a, b, 0)
-    a, b = dfb.query('model=="cgm" & dom_src==2 & org_opp=="org"'), dfb.query('model=="edm" & dom_src==2 & org_opp=="org"')
-    b1, b2 = plot_paired(a, b, 2.5)
-    plt.xticks([.5, 3.0], [r'3$\rightarrow$2-step', r'2$\rightarrow$3-step'])
-    lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Cognitive model', 'EIDT'], loc='lower left'); lg.set_zorder(20)
-    plt.savefig('figs/loss_org_model.pdf', bbox_inches='tight', transparent=True)
-
-
-    kwargs = {'dv':'nllik', 'padjust':'bonf', 'parametric':True, 'alternative':'greater'}
-    for mm, model in enumerate(['cgm', 'edm']):
-        print('\n[{}] ANOVA and multicomparison for ORG vs OPP'.format(model))
-        aov = pg.rm_anova(data=dfb[dfb['model'] == model], dv='nllik', subject='id', within=['org_opp', 'dom_src'])
+    # Evaluate Situation SY CG vs EDM
+    for vv, var in enumerate(['nllik', 'match']):
+        kwargs = {'dv':var, 'padjust':'bonf', 'parametric':True, 'alternative':'two-sided'}
+        print('\nANOVA and multicomparison cmparing CG vs ED in {}'.format(var))
+        aov = pg.rm_anova(data=dfb[dfb['org_opp'] == 'org'], dv=var, subject='id', within=['model', 'dom_src'])
         print(aov.round(3))
-        post_hocs = pg.pairwise_tests(data=dfb[dfb['model'] == model], within=['dom_src', 'org_opp'], subject='id', **kwargs)
+        post_hocs = pg.pairwise_tests(data=dfb[dfb['org_opp'] == 'org'], within=['dom_src', 'model'], subject='id', **kwargs)
         print(post_hocs.round(3))
 
-        plt.figure(2+mm).clf()
-        a, b = dfb.query('model==@model & dom_src==3 & org_opp=="org"'), dfb.query('model==@model & dom_src==3 & org_opp=="opp"')
-        plot_paired(a, b, 0)
-        a, b = dfb.query('model==@model & dom_src==2 & org_opp=="org"'), dfb.query('model==@model & dom_src==2 & org_opp=="opp"')
-        b1, b2 = plot_paired(a, b, 2.5)
+        plt.figure(figure_n).clf(); figure_n += 1
+        a, b = dfb.query('model=="cgm" & dom_src==3 & org_opp=="org"'), dfb.query('model=="edm" & dom_src==3 & org_opp=="org"')
+        plot_paired(a, b, 0, var, ylabel=axlabels[var])
+        a, b = dfb.query('model=="cgm" & dom_src==2 & org_opp=="org"'), dfb.query('model=="edm" & dom_src==2 & org_opp=="org"')
+        b1, b2 = plot_paired(a, b, 2.5, var, ylabel=axlabels[var])
         plt.xticks([.5, 3.0], [r'3$\rightarrow$2-step', r'2$\rightarrow$3-step'])
-        if mm == 1:
-            # plt.legend([b1[0], b2[0]], ['Original', 'Others'], loc='lower right')
-            lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Original', 'Others'], loc='lower left'); lg.set_zorder(20)
-        plt.savefig('figs/loss_opp_{}.pdf'.format(model), bbox_inches='tight', transparent=True)
+        if var == 'nllik':
+            lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Cognitive model', 'EIDT'], loc='upper right'); lg.set_zorder(20)
+        plt.ylim(ylims[var])
+        plt.savefig('figs/loss_org_model_{}.pdf'.format(var), bbox_inches='tight', transparent=True)
+
+
+    # Evaluate Situation SY Original vs Others
+    for mm, model in enumerate(['cgm', 'edm']):
+        for vv, var in enumerate(['nllik', 'match']):
+            kwargs = {'dv':var, 'padjust':'bonf', 'parametric':True, 'alternative':'two-sided'}
+            print('\n[{}] ANOVA and multicomparison for ORG vs OPP in {}'.format(model, var))
+            aov = pg.rm_anova(data=dfb[dfb['model'] == model], dv=var, subject='id', within=['org_opp', 'dom_src'])
+            print(aov.round(3))
+            post_hocs = pg.pairwise_tests(data=dfb[dfb['model'] == model], within=['dom_src', 'org_opp'], subject='id', **kwargs)
+            print(post_hocs.round(3))
+
+            plt.figure(figure_n).clf(); figure_n += 1
+            a, b = dfb.query('model==@model & dom_src==3 & org_opp=="org"'), dfb.query('model==@model & dom_src==3 & org_opp=="opp"')
+            plot_paired(a, b, 0, var, ylabel=axlabels[var])
+            a, b = dfb.query('model==@model & dom_src==2 & org_opp=="org"'), dfb.query('model==@model & dom_src==2 & org_opp=="opp"')
+            b1, b2 = plot_paired(a, b, 2.5, var, ylabel=axlabels[var])
+            plt.xticks([.5, 3.0], [r'3$\rightarrow$2-step', r'2$\rightarrow$3-step'])
+            plt.ylim(ylims[var])
+            if (mm == 0) & (var == 'nllik'):
+                lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Original', 'Others'], loc='upper right'); lg.set_zorder(20)
+            plt.savefig('figs/loss_opp_{}_{}.pdf'.format(model, var), bbox_inches='tight', transparent=True)
+    '''
+
+    # =================================
+    # z and reconstruction loss
+    # =================================
+    cmbres = pd.read_csv('tmp/encdec_loss_b_cmbs.csv')
+    pids = cmbres['target_id'].unique()
+    # for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
+        # for pp, pid in enumerate(pids):
+            # s0 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & target_id == @pid & source_id == @pid').iloc[0]
+            # z0 = np.array([s0['z1'], s0['z2']])
+            # for _pp, _pid in enumerate(pids):
+                # s1 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & target_id == @pid & source_id == @_pid')
+                # idx = s1.index[0]
+                # s1 = s1.iloc[0]
+                # z1 = np.array([s1['z1'], s1['z2']])
+                # d = np.linalg.norm(z0 - z1)
+                # cmbres.loc[idx, 'z_dist'] = d
+    # cmbres.to_csv('tmp/encdec_loss_b_cmbs.csv', index=False)
+    '''
+    for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
+        cmbres1 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg')
+        for vv, var in enumerate(['nllik', 'match']):
+            formula = '{} ~ target_id + z_dist'.format(var)
+            mdl = smf.glm(formula=formula, data=cmbres1, family=sm.families.Gamma()).fit()
+            print(mdl.summary())
+
+            plt.figure(figure_n).clf(); figure_n += 1
+            testdf = pd.DataFrame(np.array(['abcd'] * 1000), columns=['target_id'])
+            testdf['z_dist'] = np.linspace(0, cmbres1['z_dist'].max(), 1000)
+            y = np.zeros([len(pids), 1000])
+            for pp, pid in enumerate(pids):
+                ms = plt.plot(cmbres1[cmbres1['target_id'] == pid]['z_dist'], cmbres1[cmbres1['target_id'] == pid][var], '.', alpha=.05, mec=None)
+                testdf['target_id'] = pid
+                y_ = mdl.predict(testdf)
+                # plt.plot(testdf['z_dist'], y_, '--', c=ms[0].get_color(), alpha=.2, zorder=100)
+                y[pp] = y_
+            plt.plot(testdf['z_dist'], y.mean(0), 'k', zorder=1000)
+            plt.ylabel(axlabels[var])
+            plt.xlabel('Distance in individuality index')
+            plt.savefig('figs/org_vs_opp/{}to{}_{}.pdf'.format(n_steps_src, n_steps_trg, var), bbox_inches='tight', transparent=True)
+    '''
+
+    # =================================
+    # Traning and validation curves
+    # =================================
+    '''
+    for dom_src, dom_trg in cmbs:
+        net_path = 'tmp/mdp_it_s{}_s{}_leave_none.pth'.format(dom_src, dom_trg)
+        enc, dec, actnet = sv.init_nets(5, 2, dom_src, dom_trg, device='cpu', verbose=False)
+        enc, dec, [train_loss, valid_loss], _ = sv.load_net(enc, dec, net_path, '.valid', device='cpu', verbose=True)
+        epoch_stopped = len(valid_loss)
+        _, _, [train_loss, valid_loss], _ = sv.load_net(enc, dec, net_path, '.latest', device='cpu', verbose=False)
+        plt.figure(figure_n).clf(); figure_n += 1
+        plt.semilogy(train_loss, label='Training')
+        plt.semilogy(valid_loss, label='Validation')
+        ylim = plt.gca().get_ylim()
+        plt.vlines([epoch_stopped], ylim[0], ylim[1], ls='dotted', colors='k')
+        plt.semilogy(epoch_stopped, valid_loss[epoch_stopped-1], 'k*', ms=20)
+        plt.ylim(ylim)
+        plt.xlim(0, 50000)
+        plt.legend()
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss (negative log-likelihood)')
+        plt.savefig('figs/training/{}_{}.pdf'.format(dom_src, dom_trg), bbox_inches='tight', transparent=True)
+    '''
+
+    # =================================
+    # On-policy evaluation
+    # =================================
+    '''
+    at = pd.read_csv('tmp/at_on_policy.csv')
+    pids = at['id'].unique()
+    at1 = pd.DataFrame()
+    at1_columns = ['n_steps_src', 'n_steps_trg', 'id', 'agent', 'diff_rew', 'diff_per']
+    for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
+        for pp, pid in enumerate(pids):
+            _res = at.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & id == @pid')
+            diff_rew = _res[_res['agent'] == 'org']['diff_rew'].mean()
+            diff_per = _res[_res['agent'] == 'org']['diff_per'].mean()
+            dat = [n_steps_src, n_steps_trg, pid, 'org', diff_rew, diff_per]
+            at1 = pd.concat([at1, pd.DataFrame([dat], columns=at1_columns)], axis=0)
+
+            diff_rew = _res[_res['agent'] == 'opp']['diff_rew'].mean()
+            diff_per = _res[_res['agent'] == 'opp']['diff_per'].mean()
+            dat = [n_steps_src, n_steps_trg, pid, 'opp', diff_rew, diff_per]
+            at1 = pd.concat([at1, pd.DataFrame([dat], columns=at1_columns)], axis=0)
+
+    for var in  ['diff_rew', 'diff_per']:
+        plt.figure(figure_n).clf(); figure_n += 1
+        a = at1.query('n_steps_src == 3 & n_steps_trg == 2 & agent == "org"')
+        b = at1.query('n_steps_src == 3 & n_steps_trg == 2 & agent == "opp"')
+        plot_paired(a, b, 0, var, ylabel=axlabels[var])
+        a = at1.query('n_steps_src == 2 & n_steps_trg == 3 & agent == "org"')
+        b = at1.query('n_steps_src == 2 & n_steps_trg == 3 & agent == "opp"')
+        b1, b2 = plot_paired(a, b, 2.5, var, ylabel=axlabels[var])
+        plt.xticks([.5, 3.0], [r'3$\rightarrow$2-step', r'2$\rightarrow$3-step'])
+        if var == 'diff_rew':
+            lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['Original', 'Others'], loc='upper right'); lg.set_zorder(20)
+        plt.savefig('figs/on_policy/{}.pdf'.format(var), bbox_inches='tight', transparent=True)
+
+        print('\nANOVA and multicomparison cmparing ORG vs OPP in {} on-policy'.format(var))
+        at2 = at1.query('agent != "hum"')
+        aov = pg.rm_anova(data=at2, dv=var, subject='id', within=['agent', 'n_steps_trg'])
+        print(aov.round(3))
+        kwargs = {'padjust':'bonf', 'parametric':True, 'alternative':'greater'}
+        post_hocs = pg.pairwise_tests(data=at2, dv=var, within=['n_steps_trg', 'agent'], subject='id', **kwargs)
+        print(post_hocs.round(3))
+
+    ct = {'org': 'Original', 'opp': 'Others'}
+    for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
+        for var in ['total_rew', 'percent_rewarding_act']:
+            for agent in ['org', 'opp']:
+                plt.figure(figure_n).clf()
+                for pp, pid in enumerate(pids):
+                    plt.plot(at.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & id == @pid & agent == "hum"')[var],
+                             at.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & id == @pid & agent == @agent')[var],
+                             'o', alpha=.5)
+                # plt.plot(at.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & agent == "hum"')[var].mean(),
+                         # at.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & agent == @agent')[var].mean(),
+                        # 'k*', ms=10)
+                plt.xlabel('Human'); plt.ylabel('Task solver' + ' ({})'.format(ct[agent]))
+                if var == 'percent_rewarding_act':
+                    plt.plot([0, 1], [0, 1], 'k--', zorder=-1)
+                elif var == 'total_rew':
+                    plt.plot([15, 42], [15, 42], 'k--', zorder=-1)
+                plt.axis('equal')
+                plt.axis('square')
+                plt.savefig('figs/on_policy/{}_{}to{}_{}.pdf'.format(var, n_steps_src, n_steps_trg, agent), bbox_inches='tight', transparent=True)
+
+    at1 = at.query('agent != "opp" & block in [2]')
+    at1['ixb'] = at1['id'] + at1['block'].to_numpy().astype(str)
+    for var in ['total_rew', 'percent_rewarding_act']:
+        print('\nANOVA and multicomparison cmparing HUM vs ORG in {} on-policy'.format(var))
+        print('[{}] hum {:.3f} vs org {:.3f}'.format(var, at1[at1['agent'] == 'hum'][var].mean(), at1[at1['agent'] == 'org'][var].mean()))
+        # aov = pg.rm_anova(data=at1, dv=var, subject='id', within=['agent', 'n_steps_trg'])
+        aov = pg.rm_anova(data=at1, dv=var, subject='ixb', within=['agent', 'n_steps_trg'])
+        print(aov.round(3))
+        kwargs = {'padjust':'bonf', 'parametric':False, 'alternative':'two-sided'}
+        # post_hocs = pg.pairwise_tests(data=at1, dv=var, within=['n_steps_trg', 'agent'], subject='id', **kwargs)
+        post_hocs = pg.pairwise_tests(data=at1, dv=var, within=['n_steps_trg', 'agent'], subject='ixb', **kwargs)
+        print(post_hocs.round(3))
+    figure_n += 1
+    '''
+
+    # ===============================
+    # QRL parameters for human behaviours
+    # ===============================
+    '''
+    qrl_bhv_path = './data/qrl_mdp.csv'
+    dfp = pd.read_csv('tmp/param_qagents.csv')
+    for param_n in ['alpha', 'beta', 'gamma', 'init_q']:
+        plt.figure(figure_n).clf(); figure_n += 1
+        plt.figure
+        plt.hist(dfp[param_n], color='gray', bins=25)
+        plt.xlabel(axlabels[param_n])
+        plt.ylabel('Count')
+        plt.savefig('figs/qrl/human_{}.pdf'.format(param_n), bbox_inches='tight', transparent=True)
+    '''
+
+    # =================================
+    # Analysis with Q-RL
+    # =================================
+    dfz = pd.read_csv('tmp/z_qrl.csv')
+    for n_steps_src in [3, 2]:
+        dfz1 = dfz[dfz['n_steps'] == n_steps_src]
+        for zz in ['z1', 'z2']:
+            formula = '{} ~ np.log(alpha) * np.log(beta)'.format(zz)
+            mdl = smf.glm(formula=formula, data=dfz1, family=sm.families.Gaussian(sm.families.links.InversePower())).fit()
+            print(mdl.summary())
+            y_ = mdl.predict(dfz1)
+
+            for param_n in ['alpha', 'beta']:
+                plt.figure(figure_n).clf(); figure_n += 1
+                plt.plot(dfz1[param_n], dfz1[zz], 'k.', alpha=.5, mec=None)
+                plt.ylabel(axlabels[zz])
+                plt.xlabel(axlabels[param_n])
+
+                plt.plot(dfz1[param_n], y_, '.', alpha=.5, mec=None)
+                if (zz == 'z1') and (param_n == 'alpha'):
+                    plt.legend(['EIDT projection', 'GLM fitting'])
+                plt.savefig('figs/qrl/ns{}_{}_{}.pdf'.format(n_steps_src, param_n, zz), bbox_inches='tight', transparent=True)
+
+    '''
+    # cmbres_path = 'tmp/encdec_loss_b_qrl_cmb.csv'
+    # cmbres = pd.read_csv(cmbres_path)
+    # pids = cmbres['target_id'].unique()
+    # df = pd.DataFrame()
+    # for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
+        # cmbres1 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg')
+        # for pp, pid in enumerate(pids):
+            # nllik = cmbres1.query('target_id == @pid & source_id == @pid').iloc[0]['nllik']
+            # match = cmbres1.query('target_id == @pid & source_id == @pid').iloc[0]['match']
+            # ddict_org = {'n_steps_src':n_steps_src, 'n_steps_trg':n_steps_trg, 'id':pid, 'org_opp':'org', 'nllik':nllik, 'match':match}
+            # nllik = cmbres1.query('target_id == @pid & source_id != @pid')['nllik'].mean()
+            # match = cmbres1.query('target_id == @pid & source_id != @pid')['match'].mean()
+            # ddict_opp = {'n_steps_src':n_steps_src, 'n_steps_trg':n_steps_trg, 'id':pid, 'org_opp':'opp', 'nllik':nllik, 'match':match}
+            # df = pd.concat([df, pd.Series(ddict_org).to_frame().T, pd.Series(ddict_opp).to_frame().T], axis=0)
+    # df.to_csv('tmp/qrl_org_opp.csv', index=False)
+
+    df = pd.read_csv('tmp/qrl_org_opp.csv')
+    for vv, var in enumerate(['nllik', 'match']):
+        print('\n[QRL agents] ANOVA and multicomparison for ORG vs OPP {}'.format(var))
+        aov = pg.rm_anova(data=df, dv=var, subject='id', within=['org_opp', 'n_steps_src'])
+        print(aov.round(3))
+        kwargs = {'dv':var, 'padjust':'bonf', 'parametric':True, 'alternative':'two-sided'}
+        post_hocs = pg.pairwise_tests(data=df, within=['n_steps_src', 'org_opp'], subject='id', **kwargs)
+        print(post_hocs.round(3))
+        plt.figure(figure_n).clf(); figure_n += 1
+        a = df.query('n_steps_src == 3 & n_steps_trg == 2 & org_opp == "org"')
+        b = df.query('n_steps_src == 3 & n_steps_trg == 2 & org_opp == "opp"')
+        plot_paired(a, b, 0, var, ylabel=axlabels[var], show_indiv=False, whis=1)
+        a = df.query('n_steps_src == 2 & n_steps_trg == 3 & org_opp == "org"')
+        b = df.query('n_steps_src == 2 & n_steps_trg == 3 & org_opp == "opp"')
+        b1, b2 = plot_paired(a, b, 2.5, var, ylabel=axlabels[var], show_indiv=False, whis=1)
+        plt.xticks([.5, 3.0], [r'3$\rightarrow$2-step', r'2$\rightarrow$3-step'])
+        plt.ylim(ylims[var])
+        plt.savefig('figs/qrl/loss_opp_{}.pdf'.format(var), bbox_inches='tight', transparent=True)
+    '''

@@ -6,7 +6,7 @@ Individality transfer across tasks
 - load_bhv.py: organize recorded data
 - bhv_mdp/: recorded data
 - train_it_mdp.py: train an encoder-decoder model
-- show_it_mdp.py: evaluate a trained encoder-decoder model
+- eval_it_mdp.py: evaluate a trained encoder-decoder model
 - eval_qmodel_mdp.py: evaluate a q-learning agent
 - eval_ts_mdp.py: train and evaluate a task solver
 

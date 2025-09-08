@@ -3,6 +3,7 @@ import os
 import numpy as np
 import matplotlib.pylab as plt
 import sys
+import scipy.stats
 
 def plot_seq(fg, df, agent=0, n_steps=1, block=0):
     fg.clf()
@@ -32,6 +33,7 @@ def out_step_ave(df):
 
 if __name__=='__main__':
     dataset_path = 'data/bhv_mdp.csv'
+    '''
     data_dir = 'bhv_mdp'
     csvpaths = [f.name for f in os.scandir(data_dir) if not f.name.startswith('.')]
     df = pd.DataFrame()
@@ -87,6 +89,7 @@ if __name__=='__main__':
     approved_ids = df['id'].unique()
     pd.DataFrame({'id':approved_ids}).to_csv('tmp/approved_ids.csv', index=False)
     df.to_csv(dataset_path, index=False)
+    '''
 
     df = pd.read_csv(dataset_path)
     print('Total IDs: {}'.format(len(df['id'].unique())))
@@ -95,6 +98,12 @@ if __name__=='__main__':
     # ===============================
     # Visualize
     # ===============================
+    iqr = scipy.stats.iqr(df['rt'])
+    rtmin = df['rt'].quantile(.25) - iqr
+    rtmax = df['rt'].quantile(.75) + iqr
+    print('IQR: {:.3f}, rtmin: {:.3f}, rtmax: {:.3f}'.format(iqr, rtmin, rtmax))
+
+
     fg = plt.figure(3)
     plot_seq(fg, df, agent=19, n_steps=3, block=0)
 
@@ -119,6 +128,17 @@ if __name__=='__main__':
                     }
             df_seq = pd.concat([df_seq, pd.Series(dict_step).to_frame().T], axis=0)
 
+    iqr_rt = scipy.stats.iqr(df_seq['rt_mean'])
+    rtmin = df_seq['rt_mean'].quantile(.25) - iqr_rt
+    rtmax = df_seq['rt_mean'].quantile(.75) + iqr_rt
+    print('[RT] IQR: {:.3f}, min: {:.3f}, max: {:.3f}'.format(iqr_rt, rtmin, rtmax))
+
+    iqr_act = scipy.stats.iqr(df_seq['act_mean'])
+    actmin = df_seq['act_mean'].quantile(.25) - iqr_act
+    actmax = df_seq['act_mean'].quantile(.75) + iqr_act
+    print('[Action bias] IQR: {:.3f}, min: {:.3f}, max: {:.3f}'.format(iqr_act, actmin, actmax))
+
+
     plt.figure(1).clf()
     plt.figure(2).clf()
     plt.figure(3).clf()
@@ -140,13 +160,40 @@ if __name__=='__main__':
         rew_iqr[n_steps] = df_seq[df_seq['n_steps'] == n_steps]['rew'].quantile(.75) - df_seq[df_seq['n_steps'] == n_steps]['rew'].quantile(.25)
         rew_outunder[n_steps] = df_seq[df_seq['n_steps'] == n_steps]['rew'].quantile(.25) - 1.5 * rew_iqr[n_steps]
         rew_outover[n_steps] = df_seq[df_seq['n_steps'] == n_steps]['rew'].quantile(.75) + 1.5 * rew_iqr[n_steps]
+        print('[Reward ({}-steps)] IQR: {:.3f}, min: {:.3f}, max: {:.3f}'.format(n_steps, rew_iqr[n_steps], rew_outunder[n_steps], rew_outover[n_steps]))
 
     reject_ids = []
+    n_reject_ids = len(reject_ids)
+
+    # Reward-based rejection
+    for uu, id_ in enumerate(df['id'].unique()):
+        for n_steps in [2, 3]:
+            ser = df_seq.query('id == @id_ & n_steps == @n_steps').iloc[0]
+            if ser['rew'] < rew_outunder[n_steps]:
+                reject_ids.append(id_)
+    reject_ids = list(set(reject_ids))
+    print('Reward-based rejection excluded {} participants'.format(len(reject_ids)))
+    n_reject_ids = len(reject_ids)
+
+    # Action bias-based rejection
     for uu, id_ in enumerate(df['id'].unique()):
         for n_steps in dfu['n_steps'].unique():
             ser = df_seq.query('id == @id_ & n_steps == @n_steps').iloc[0]
-            if (ser['act_mean'] < .15) or (ser['act_mean'] > .85) or (ser['rt_mean'] < .75) or (ser['rt_std'] > 10.) or (ser['rew'] < rew_outunder[n_steps]):
+            if (ser['act_mean'] < actmin) or (ser['act_mean'] > actmax):
                 reject_ids.append(id_)
+    reject_ids = list(set(reject_ids))
+    print('Action bias-based rejection excluded {} participants'.format(len(reject_ids) - n_reject_ids))
+    n_reject_ids = len(reject_ids)
+
+    # RT-based rejection
+    for uu, id_ in enumerate(df['id'].unique()):
+        for n_steps in dfu['n_steps'].unique():
+            ser = df_seq.query('id == @id_ & n_steps == @n_steps').iloc[0]
+            if (ser['rt_mean'] < rtmin) or (ser['rt_mean'] > rtmax):
+                reject_ids.append(id_)
+    reject_ids = list(set(reject_ids))
+    print('RT-based rejection excluded {} participants'.format(len(reject_ids) - n_reject_ids))
+    n_reject_ids = len(reject_ids)
 
     luus = list(set(df['id'].unique()).difference(set(reject_ids)))
     print('Remaining IDs: {}'.format(len(luus)))
