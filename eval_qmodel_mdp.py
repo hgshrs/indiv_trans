@@ -77,7 +77,6 @@ if __name__=='__main__':
     # ===============================
     # Estimate RL params for each step-task and participant
     # ===============================
-    # '''
     dfp = pd.DataFrame()
     for n_steps in [2, 3]:
         df, n_actions  = sv.load_df(df_path, n_steps, pids, n_blocks)
@@ -104,7 +103,6 @@ if __name__=='__main__':
             seqdf['n_steps'] = n_steps
             dfp = pd.concat([dfp, seqdf.to_frame().T], axis=0)
             dfp.to_csv('tmp/param_qagents.csv', index=False)
-    # '''
     dfp = pd.read_csv('tmp/param_qagents.csv')
 
 
@@ -112,7 +110,6 @@ if __name__=='__main__':
     # Situation SX (no transfer)
     # ===============================
     set_src = [2, 3]
-    # '''
     dfres_a = pd.DataFrame()
     for n_steps in set_src:
         print('[SX] {}-steps MDP.'.format(n_steps))
@@ -132,13 +129,11 @@ if __name__=='__main__':
             res = {'id': pid, 'n_steps': n_steps, 'nllik_org': nllik, 'nllik_opp': nllik_opp, 'match_org': match, 'match_opp': match_opp}
             dfres_a = pd.concat([dfres_a, pd.Series(res).to_frame().T], axis=0)
             dfres_a.to_csv('tmp/qagent_nllik_a.csv', index=False)
-    # '''
 
 
     # ===============================
     # Situation SY (transfer)
     # ===============================
-    # '''
     set_trg = [2, 3]
     prod_set = list(itertools.product(set_src, set_trg))
     dfres_b = pd.DataFrame()
@@ -174,4 +169,3 @@ if __name__=='__main__':
                     }
             dfres_b = pd.concat([dfres_b, pd.Series(res).to_frame().T], axis=0)
             dfres_b.to_csv('tmp/qagent_nllik_b.csv', index=False)
-    # '''

@@ -5,9 +5,9 @@ import numpy as np
 import matplotlib.pylab as plt
 import scipy.stats
 
-import analyze_bhv as ab
+import analyze_bhv_mnist as ab
 importlib.reload(ab)
-import train_enc_dec as ted
+import train_it_mnist as ted
 importlib.reload(ted)
 
 plt.rcParams['font.family'] = 'Helvetica'
@@ -36,8 +36,8 @@ if __name__ == '__main__':
         p_correct[ss, 0] = bhv_df[bhv_df['subject'] == sbj]['correct'].mean()
         p_correct[ss, 1] = pred_df[pred_df['subject'] == sbj]['correct'].mean()
 
-    ress = scipy.stats.pearsonr(*p_correct.T)
-    print('[{}, {}] C={:.3f}, p={:3f}'.format(difficulty_trg, sat_trg, ress.statistic, ress.pvalue))
+    # ress = scipy.stats.pearsonr(*p_correct.T)
+    # print('[{}, {}] C={:.3f}, p={:3f}'.format(difficulty_trg, sat_trg, ress.statistic, ress.pvalue))
     plt.figure(1).clf()
     plt.plot(p_correct[:, 0], p_correct[:, 1], 'o')
 
@@ -57,7 +57,7 @@ if __name__ == '__main__':
         plt.bar(labels + .5 * width, p_correct[ss, :, 1] * 100, width=width, ec='k', fc='gray')
         plt.xticks(labels, labels)
         plt.ylim([0, 100])
-        plt.ylabel('\\%correct')
+        plt.ylabel('Rate for correct response')
         plt.xlabel('Stimulus digit')
         plt.pause(.1)
         if sbj == 47:

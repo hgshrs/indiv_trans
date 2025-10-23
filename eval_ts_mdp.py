@@ -45,8 +45,7 @@ def compute_percent_match(real, pred):
 if __name__=='__main__':
     n_blocks = 3
     lr = 1e-3 # learning rate for NN optimizers
-    # n_epochs = 25000
-    n_epochs = 0
+    n_epochs = 25000
     n_gen_seqs = 100
     n_gen_episodes = 150
 

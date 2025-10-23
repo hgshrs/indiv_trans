@@ -105,6 +105,7 @@ if __name__=='__main__':
         dfres = pd.DataFrame()
         cmbres = pd.DataFrame()
 
+    dfz = pd.DataFrame()
     for n_steps_src, n_steps_trg in prod_set:
         print('\n**********************\nSource: {}, Target: {}'.format(n_steps_src, n_steps_trg))
 
@@ -154,3 +155,23 @@ if __name__=='__main__':
 
         cmbres.to_csv(cmbres_path, index=False)
         dfres.to_csv(dfres_path, index=False)
+
+
+        # z-plane
+        net_path = 'tmp/mdp_it_s{}_s{}_leave_none.pth'.format(n_steps_src, n_steps_trg)
+        enc, dec, actnet = sv.init_nets(dim_state, n_actions_trg, n_steps_src, n_steps_trg, device=device, verbose=False)
+        enc, dec, training_losses, rew_rates = sv.load_net(enc, dec, net_path, suffix, device=device, verbose=True)
+
+        seq_path = 'tmp/sqs_trans{}{}.pkl'.format(n_steps_src, n_steps_trg)
+        with open(seq_path, 'rb') as f:
+            x_src, y_src, seqs_src, x_trg, y_trg, seqs_trg = pickle.load(f)
+
+        z_ags = np.zeros([len(pids), dim_z])
+        for pp, pid in enumerate(pids):
+            x_src, y_src = seqs_src[pid]
+            # z_seqs = enc(x_src).detach().mean(0).view(1, dim_z)
+            z_seqs = enc(x_src).detach().view(3, dim_z)
+            z_ags[pp] = z_seqs.mean(0)
+            data = {'id':[pid] * 3, 'z1':z_seqs[:, 0], 'z2':z_seqs[:, 1], 'n_steps':n_steps_src}
+            dfz = pd.concat([dfz, pd.DataFrame(data)], axis=0)
+    dfz.to_csv('tmp/z_hum.csv', index=False)

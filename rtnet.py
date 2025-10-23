@@ -158,7 +158,7 @@ def create_mnist_loaders(sets=['train', 'test'], train_batch_size=64, test_batch
     if type(sets) == list:
         dataset1 = datasets.MNIST('./data', train=True, download=True, transform=transform)
         train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
-        dataset2 = datasets.MNIST('./data', train=False, transform=transform)
+        dataset2 = datasets.MNIST('./data', train=False, download=True, transform=transform)
         test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
         return train_loader, test_loader
     elif sets == 'train':
@@ -166,7 +166,7 @@ def create_mnist_loaders(sets=['train', 'test'], train_batch_size=64, test_batch
         train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
         return train_loader
     elif sets == 'test':
-        dataset2 = datasets.MNIST('./data', train=False, transform=transform)
+        dataset2 = datasets.MNIST('./data', train=False, download=True, transform=transform)
         test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
         return test_loader
 

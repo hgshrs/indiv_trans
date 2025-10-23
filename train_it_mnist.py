@@ -12,6 +12,7 @@ import copy
 from tqdm import tqdm
 import numpy as np
 import matplotlib.pylab as plt
+import os
 
 def init_nets(
         dim_z=2,
@@ -32,32 +33,32 @@ def init_nets(
     return enc, dec, evn
 
 class mk_ds(Dataset):
-    def __init__(self, df, difficulty, sat, participants=[], parallel=True, device='cpu'):
+    def __init__(self, df, difficulty, sat, pids=[], parallel=True, device='cpu'):
         self.difficulty = difficulty
         self.sat = sat
         self.device = device
 
-        if len(participants) == 0:
-            participants = df['subject'].unique()
+        if len(pids) == 0:
+            pids = df['subject'].unique()
         res = []
         if parallel:
-            res = joblib.Parallel(n_jobs=-1)(joblib.delayed(df2seq)(df, partic, difficulty, sat) for partic in participants)
+            res = joblib.Parallel(n_jobs=-1)(joblib.delayed(df2seq)(df, partic, difficulty, sat) for partic in pids)
         else:
-            for partic in participants:
+            for partic in pids:
                 res.append(df2seq(df, partic, difficulty, sat))
 
         x = []
         y = []
         self.xp = {}
         self.yp = {}
-        for aa, partici in enumerate(participants):
+        for aa, pid in enumerate(pids):
             if len(res[aa][0]) > 0:
                 x += res[aa][0]
                 y += res[aa][1]
-                self.xp[partici] = torch.stack(res[aa][0]).to(self.device)
-                self.yp[partici] = torch.stack(res[aa][1]).to(self.device)
+                self.xp[pid] = torch.stack(res[aa][0]).to(self.device)
+                self.yp[pid] = torch.stack(res[aa][1]).to(self.device)
             else:
-                print('Participant {} is missing.'.format(partici))
+                print('Participant {} is missing.'.format(pid))
         self.x = torch.stack(x).to(self.device)
         self.y = torch.stack(y).to(self.device)
         self.len = len(self.x)
@@ -254,27 +255,31 @@ def put_w2net(net, w):
 def load_net(enc, dec, path, state='.latest', device='cpu', verbose=True):
     train_loss = []
     valid_loss = []
+    train_match = []
+    valid_match = []
     try:
         mm = torch.load(path + state, weights_only=False, map_location=torch.device(device))
         enc.load_state_dict(mm['enc_state'])
         dec.load_state_dict(mm['dec_state'])
         train_loss = mm['train_loss']
         valid_loss = mm['valid_loss']
+        train_match = mm['train_match']
+        valid_match = mm['valid_match']
         if verbose:
             print('Loaded {}{} at {} epoch'.format(path, state, len(train_loss)))
     except:
         if verbose:
             print('Failed to loading {}{}'.format(path, state))
-    return enc, dec, train_loss, valid_loss
+    return enc, dec, train_loss, valid_loss, train_match, valid_match
 
 def compute_participant_loss(evn, w, seq_partici_labels, ds, loss_fn, threshold_conf=.0):
     pred_labels, real_labels, true_labels = [], [], []
     real_rt, pred_rt = [], []
     l = torch.tensor(0., requires_grad=True)
-    for ss, partici in enumerate(seq_partici_labels):
+    for ss, pid in enumerate(seq_partici_labels):
         _, params = put_w2net(evn, w[ss])
         # xv, yv = x[[ss]], y[[ss]] # self-training. should be chaned to self, but different responses
-        xv, yv = ds.xp[partici], ds.yp[partici]
+        xv, yv = ds.xp[pid], ds.yp[pid]
         evid, valu, _ = torch.func.functional_call(evn, params, xv)
         ls, _pred_labels, _real_labels, _true_labels = compute_batch_loss(valu, yv, loss_fn)
         pred_labels += _pred_labels
@@ -305,14 +310,14 @@ def compute_batch_loss(nout, y, loss_fn):
     return l/y.shape[0], pred_labels, real_labels, true_labels
 
 def load_data(difficulty_src=None, sat_src=None, difficulty_trg=None, sat_trg=None,
-        sets_tvt=['train', 'valid', 'test'], batch_size=128,
-        dfseqs=[], seq_path='tmp/seqs.csv', iddf_path='tmp/split_participants_train_valid_test.csv',
-        dry_run=False, verbose=True, device='cpu'):
+        iddf=[], sets_tvt=['train', 'valid', 'test'], 
+        dfseqs=[], seq_path='tmp/seqs.csv',
+        batch_size=128, dry_run=False, verbose=True, device='cpu'):
     if len(dfseqs) == 0:
         dfseqs = pd.read_csv(seq_path) # created by train_decision_mod.py
-    # sp_tvt = [7, 1, 2] # ratio for train/valid/test participants
-    # iddf = split_ids(dfseqs['subject'].unique(), sp_tvt); iddf.to_csv('tmp/split_participants_train_valid_test.csv', index=False)
-    iddf = pd.read_csv(iddf_path)
+    # sp_tvt = [7, 1, 2] # ratio for train/valid/test pids
+    # iddf = split_ids(dfseqs['subject'].unique(), sp_tvt); iddf.to_csv('tmp/split_pids_train_valid_test.csv', index=False)
+    # iddf = pd.read_csv(iddf_path)
 
     if dry_run:
         n_seqs = len(iddf) * 100
@@ -324,18 +329,18 @@ def load_data(difficulty_src=None, sat_src=None, difficulty_trg=None, sat_trg=No
     dlsrc = {}
     dstrg = {}
     for tvt in sets_tvt:
-        participants_ = iddf.query('set == @tvt')['id']
+        pids_ = iddf.query('set == @tvt')['id']
         src_len, trg_len = 0, 0
         if type(difficulty_src) != type(None):
             dlsrc[tvt] = DataLoader(
-                    mk_ds(dfseqs, difficulty=difficulty_src, sat=sat_src, participants=participants_, device=device),
+                    mk_ds(dfseqs, difficulty=difficulty_src, sat=sat_src, pids=pids_, device=device),
                     shuffle=True, batch_size=batch_size)
             src_len = dlsrc[tvt].dataset.len
         if type(difficulty_trg) != type(None):
-            dstrg[tvt] = mk_ds(dfseqs, difficulty=difficulty_trg, sat=sat_trg, participants=participants_, device=device)
+            dstrg[tvt] = mk_ds(dfseqs, difficulty=difficulty_trg, sat=sat_trg, pids=pids_, device=device)
             trg_len = dstrg[tvt].len
         if verbose:
-            print('{}\t{}\t{}\t{}'.format(tvt, len(participants_), src_len, trg_len))
+            print('{}\t{}\t{}\t{}'.format(tvt, len(pids_), src_len, trg_len))
     return dlsrc, dstrg
 
 def split_ids(pids, sp_tvt):
@@ -349,9 +354,23 @@ def split_ids(pids, sp_tvt):
     pids_test = pids[int(np.sum(sp_tvt[:2]) / np.sum(sp_tvt) * len(pids)):]
     iddf_test = pd.DataFrame(pids_test, columns=['id'])
     iddf_test['set'] = 'test'
-    iddf_tvt = pd.concat([iddf_train, iddf_valid, iddf_test], axis=0).reset_index()
-    iddf_tvt.to_csv('tmp/split_participants_train_valid_test.csv', index=False)
+    iddf_tvt = pd.concat([iddf_train, iddf_valid, iddf_test], axis=0).reset_index(drop=True)
+    iddf_tvt.to_csv('tmp/split_pids_train_valid_test.csv', index=False)
     return iddf_tvt
+
+def leave_one_participant_id(pids, leave_pid, sp_tv=[.9, .1]):
+    pids_ = copy.copy(pids)
+    if leave_pid == 'none':
+        iddf = split_ids(pids_, sp_tvt=sp_tv + [.0])
+        iddf = iddf.reset_index(drop=True)
+    else:
+        pids_.remove(leave_pid)
+        iddf = split_ids(pids_, sp_tvt=sp_tv + [.0])
+        iddf_test = pd.DataFrame([leave_pid], columns=['id'])
+        iddf_test['set'] = 'test'
+        iddf = pd.concat([iddf, iddf_test], axis=0)
+        iddf = iddf.reset_index(drop=True)
+    return iddf
 
 def concat_xy_enc(x, y):
     iny = torch.zeros_like(x)
@@ -362,12 +381,12 @@ def concat_xy_enc(x, y):
 
 def out_nx_participant(ds):
     device = ds.x.device
-    participants = list(ds.xp.keys())
+    pids = list(ds.xp.keys())
     nx = []
-    for pp, partici in enumerate(participants):
-        _xp, _yp = ds.xp[partici], ds.yp[partici]
+    for pp, pid in enumerate(pids):
+        _xp, _yp = ds.xp[pid], ds.yp[pid]
         nx += [concat_xy_enc(_xp, _yp).to(device)]
-    return nx, participants
+    return nx, pids
 
 def translate_tasks(tasks):
     tt = []
@@ -390,23 +409,23 @@ def translate_tasks(tasks):
 if __name__ == '__main__':
     # Script settings
     parser = argparse.ArgumentParser(description='Simulate RTNet')
-    parser.add_argument('--tasks', type=str, default='eaes',
-                        help='Transfer tasks (default: eaes)')
+    # parser.add_argument('--tasks', type=str, default='eaes',
+                        # help='Transfer tasks (default: eaes)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--no-mps', action='store_true', default=False,
                         help='disables macOS GPU training')
     parser.add_argument('--batch-size', type=int, default=512, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                        help='number of epochs to train (default: 10)')
-    parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
-                        help='learning rate (default: 1e-4)')
+    parser.add_argument('--epochs', type=int, default=2000, metavar='N',
+                        help='number of epochs to train (default: 2000)')
+    parser.add_argument('--lr', type=float, default=1e-2, metavar='LR',
+                        help='learning rate (default: 1e-2)')
     parser.add_argument('--dry-run', action='store_true', default=False,
                         help='quickly check a single pass')
     parser.add_argument('--save-interval', type=int, default=10, metavar='N',
                         help='how many epochs to wait before saving training status (default: 1)')
-    parser.add_argument('--plot-interval', type=int, default=0, metavar='N',
+    parser.add_argument('--plot-interval', type=int, default=10, metavar='N',
                         help='how many epochs to wait before plotting training status (default: 0)')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -415,75 +434,105 @@ if __name__ == '__main__':
     args.plot_interval = args.epochs + 1 if args.plot_interval == 0 else args.plot_interval
     print('Dry run: {}'.format(args.dry_run))
     print('Device: {}'.format(device))
-    difficulty_src, sat_src, difficulty_trg, sat_trg = translate_tasks(args.tasks)
 
-    # Experiment parameters
-    print('Source: {}, {}'.format(difficulty_src, sat_src))
-    print('Target: {}, {}'.format(difficulty_trg, sat_trg))
-    net_path = 'tmp/edm_{}.pt'.format(args.tasks)
+    df = pd.read_csv('tmp/seqs.csv') # created by train_decision_mod.py
+    pids = list(np.sort(df['subject'].unique()))
+    # pids = ['none']
+    print(pids)
 
-    # Load models
-    enc, dec, evn = init_nets(device=device, verbose=True)
-    enc, dec, train_loss, valid_loss = load_net(enc, dec, net_path, state='.latest', device=device)
-    opt_enc = optim.Adam(enc.parameters(), lr=args.lr)
-    opt_dec = optim.Adam(dec.parameters(), lr=args.lr)
-    loss_fn = nn.CrossEntropyLoss()
+    set_abbr_tasks = [
+            'esea', 'daea', 'dsea',
+            'eaes', 'daes', 'dses',
+            'eada', 'esda', 'dsda',
+            'eads', 'esds', 'dads',
+            ]
+    for abbr_tasks in set_abbr_tasks:
+        difficulty_src, sat_src, difficulty_trg, sat_trg = translate_tasks(abbr_tasks)
 
-    # Load dataset
-    dlsrc, dstrg = load_data(difficulty_src, sat_src, difficulty_trg, sat_trg,
-            sets_tvt=['train', 'valid'], batch_size=args.batch_size,
-            device=device, dry_run=args.dry_run, verbose=False)
+        # Experiment parameters
+        print('Source: {}, {}'.format(difficulty_src, sat_src))
+        print('Target: {}, {}'.format(difficulty_trg, sat_trg))
 
-    # train encoder/decoder
-    match_train = []
-    match_valid = []
-    for ee in tqdm(range(args.epochs)):
+        for pp, pid in enumerate(pids):
+            iddf_path = 'tmp/mnist/split_leave_{}.csv'.format(pid)
+            try:
+                iddf = pd.read_csv(iddf_path)
+                print('Loaded {}'.format(iddf_path))
+            except:
+                iddf = leave_one_participant_id(pids, pid, sp_tv=[.9, .1])
+                iddf.to_csv(iddf_path, index=False)
+                print('Created {}'.format(iddf_path))
 
-        # train---participant-wise evaluation
-        enc.train()
-        enc.zero_grad()
-        opt_enc.zero_grad()
-        dec.train()
-        dec.zero_grad()
-        opt_dec.zero_grad()
-        nx, participants = out_nx_participant(dlsrc['train'].dataset)
-        z = enc(nx)
-        w = dec(z)
-        l, pred_labels, real_labels, true_labels, _, _ = compute_participant_loss(evn, w, participants, dstrg['train'], loss_fn)
-        l.backward()
-        opt_enc.step()
-        opt_dec.step()
-        train_loss.append(l.item())
-        match_train.append((np.array(pred_labels) == np.array(real_labels)).sum() / len(pred_labels))
+            # Load models
+            net_path = 'tmp/mnist/edm_{}_leave_{}.pt'.format(abbr_tasks, pid)
+            enc, dec, evn = init_nets(device=device, verbose=False)
+            else:
+                _, _, train_loss, valid_loss, train_match, valid_match = load_net(enc, dec, net_path, state='.latest', device=device)
+                if args.epochs <= len(train_loss):
+                    n_epochs = 0
+                else:
+                    n_epochs = args.epochs - len(train_loss)
+                    enc, dec, train_loss, valid_loss, train_match, valid_match = load_net(enc, dec, net_path, state='.latest', device=device)
+            opt_enc = optim.Adam(enc.parameters(), lr=args.lr)
+            opt_dec = optim.Adam(dec.parameters(), lr=args.lr)
+            loss_fn = nn.CrossEntropyLoss()
 
-        # valid---participant-wise evaluation
-        enc.eval()
-        dec.eval()
-        nx, participants = out_nx_participant(dlsrc['valid'].dataset)
-        z = enc(nx)
-        w = dec(z)
-        l, pred_labels, real_labels, true_labels, _, _ = compute_participant_loss(evn, w, participants, dstrg['valid'], loss_fn)
-        valid_loss.append(l.item())
-        match_valid.append((np.array(pred_labels) == np.array(real_labels)).sum() / len(pred_labels))
+            # Load dataset
+            if n_epochs > 0:
+                dlsrc, dstrg = load_data(difficulty_src, sat_src, difficulty_trg, sat_trg,
+                        iddf=iddf, sets_tvt=['train', 'valid'], batch_size=args.batch_size,
+                        device=device, dry_run=args.dry_run, verbose=False)
 
-        if (ee + 1) % args.save_interval == 0:
-            saving_vars = {
-                    'enc_state':enc.state_dict(), 'dec_state':dec.state_dict(),
-                    'train_loss':train_loss, 'valid_loss':valid_loss}
-            torch.save(saving_vars, net_path + '.latest')
-            if train_loss[-1] <= np.min(train_loss):
-                torch.save(saving_vars, net_path + '.train')
-            if valid_loss[-1] <= np.min(valid_loss):
-                torch.save(saving_vars, net_path + '.valid')
+            # train encoder/decoder
+            for ee in tqdm(range(n_epochs)):
 
-        if (ee + 1) % args.plot_interval == 0:
-            plt.figure(1).clf()
-            plt.subplot(121); plt.gca()
-            plt.semilogy(train_loss)
-            plt.semilogy(valid_loss)
-            plt.title('Train loss')
-            plt.subplot(122); plt.gca()
-            plt.plot(match_train)
-            plt.plot(match_valid)
-            plt.title('%match-to-behav')
-            plt.pause(.1)
+                # train---participant-wise evaluation
+                enc.train()
+                enc.zero_grad()
+                opt_enc.zero_grad()
+                dec.train()
+                dec.zero_grad()
+                opt_dec.zero_grad()
+                nx, pids_ = out_nx_participant(dlsrc['train'].dataset)
+                z = enc(nx)
+                w = dec(z)
+                l, pred_labels, real_labels, true_labels, _, _ = compute_participant_loss(evn, w, pids_, dstrg['train'], loss_fn)
+                l.backward()
+                opt_enc.step()
+                opt_dec.step()
+                train_loss.append(l.item())
+                train_match.append((np.array(pred_labels) == np.array(real_labels)).sum() / len(pred_labels))
+
+                # valid---participant-wise evaluation
+                enc.eval()
+                dec.eval()
+                nx, pids_ = out_nx_participant(dlsrc['valid'].dataset)
+                z = enc(nx)
+                w = dec(z)
+                l, pred_labels, real_labels, true_labels, _, _ = compute_participant_loss(evn, w, pids_, dstrg['valid'], loss_fn)
+                valid_loss.append(l.item())
+                valid_match.append((np.array(pred_labels) == np.array(real_labels)).sum() / len(pred_labels))
+
+                if (ee + 1) % args.save_interval == 0:
+                    saving_vars = {
+                            'enc_state':enc.state_dict(), 'dec_state':dec.state_dict(),
+                            'train_loss':train_loss, 'valid_loss':valid_loss,
+                            'train_match':train_match, 'valid_match':valid_match,
+                            }
+                    torch.save(saving_vars, net_path + '.latest')
+                    if train_loss[-1] <= np.min(train_loss):
+                        torch.save(saving_vars, net_path + '.train')
+                    if valid_loss[-1] <= np.min(valid_loss):
+                        torch.save(saving_vars, net_path + '.valid')
+
+                if (ee + 1) % args.plot_interval == 0:
+                    plt.figure(1).clf()
+                    plt.subplot(121); plt.gca()
+                    plt.semilogy(train_loss)
+                    plt.semilogy(valid_loss)
+                    plt.title('Train loss')
+                    plt.subplot(122); plt.gca()
+                    plt.plot(train_match)
+                    plt.plot(valid_match)
+                    plt.title('%match')
+                    plt.pause(.1)

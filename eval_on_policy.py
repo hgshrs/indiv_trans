@@ -36,7 +36,8 @@ def get_percent_rewarding_act_at_final_choice(df):
     return percent_rewarding_act
 
 if __name__=='__main__':
-    n_reps = 499
+    # n_reps = 1000
+    n_reps = 100
     n_steps_src = 3
     n_steps_trg = 2
     dim_state = 5
@@ -49,10 +50,7 @@ if __name__=='__main__':
     res_csv = 'tmp/res_on_policy.csv'
     at_csv = 'tmp/at_on_policy.csv'
 
-
-    # '''
     for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
-        df_path = './data/bhv_mdp2.csv'
         df = pd.read_csv(df_path)
         pids = list(df['id'].unique())
 
@@ -62,7 +60,6 @@ if __name__=='__main__':
         enc.eval(); dec.eval()
 
         mp_trg = mdp.mk_default_mdp(n_steps=n_steps_trg)
-
 
         seq_path = 'tmp/sqs_trans{}{}.pkl'.format(n_steps_src, n_steps_trg)
         try:
@@ -79,11 +76,11 @@ if __name__=='__main__':
                 pickle.dump([x_src, y_src, seqs_src, x_trg, y_trg, seqs_trg], f)
         ags = {}
 
-        z_ags = np.zeros([len(pids), dim_z])
+        z_ags = {}
         for pp, pid in enumerate(pids):
             x_src, y_src = seqs_src[pid]
             z_seqs = enc(x_src).detach().mean(0).view(1, dim_z)
-            z_ags[pp] = z_seqs
+            z_ags[pid] = z_seqs
             w_ags = dec(z_seqs).detach()
             fixed_actnet, params = sv.put_w2net(actnet, w_ags[0])
             ags[pid] = sv.actnet2agent(copy.deepcopy(fixed_actnet))
@@ -93,12 +90,13 @@ if __name__=='__main__':
         except:
             resdf = pd.DataFrame()
         res = np.zeros([len(pids), 3, 3])
+        res_columns = ['n_steps_src', 'n_steps_trg', 'id', 'block', 'agent', 'total_rew', 'percent_rewarding_act',
+                'target_id', 'source_id', 'z_dist']
         for pp, pid in tenumerate(pids):
             df_trg, _ = sv.load_df(df_path, n_steps_trg, [pid])
+            z0 = z_ags[pid]
             _pids = copy.copy(pids)
             _pids.remove(pid)
-            # _pids = [pids[np.diag(np.dot((z_ags - z_ags[pp]), (z_ags - z_ags[pp]).T)).argmax()]]
-            # print(pid, _pid)
             for bb, blk in enumerate(df_trg['block'].unique()):
                 df_blk = df_trg[df_trg['block'] == blk]
                 total_rew = 0
@@ -109,26 +107,26 @@ if __name__=='__main__':
 
                 total_rew = int(df_blk['rew'].sum())
                 percent_rewarding_act = get_percent_rewarding_act_at_final_choice(df_blk)
-                _resdf = [n_steps_src, n_steps_trg, pid, bb, 'hum', total_rew, percent_rewarding_act]
-                res_columns = ['n_steps_src', 'n_steps_trg', 'id', 'block', 'agent', 'total_rew', 'percent_rewarding_act']
+                _resdf = [n_steps_src, n_steps_trg, pid, bb, 'hum', total_rew, percent_rewarding_act, pid, pid, 0.]
                 resdf = pd.concat([resdf, pd.DataFrame([_resdf], columns=res_columns)], axis=0)
                 for rr in range(n_reps):
                     ag = ags[pid]; ag.reset()
                     genseq = mdp.generate_seq(ag, mp_trg, mpdf=mpdf, pid=pid)
                     total_rew = int(genseq['rew'].sum())
                     percent_rewarding_act = get_percent_rewarding_act_at_final_choice(genseq)
-                    _resdf = [n_steps_src, n_steps_trg, pid, bb, 'org', total_rew, percent_rewarding_act]
+                    _resdf = [n_steps_src, n_steps_trg, pid, bb, 'org', total_rew, percent_rewarding_act, pid, pid, 0.]
                     resdf = pd.concat([resdf, pd.DataFrame([_resdf], columns=res_columns)], axis=0)
 
                     _pid = np.random.choice(_pids)
+                    z1 = z_ags[_pid]
+                    z_dist = np.linalg.norm(z0 - z1)
                     _ag = ags[_pid]; _ag.reset()
                     genseq2 = mdp.generate_seq(_ag, mp_trg, mpdf=mpdf, pid=_pid)
                     total_rew = int(genseq2['rew'].sum())
                     percent_rewarding_act = get_percent_rewarding_act_at_final_choice(genseq2)
-                    _resdf = [n_steps_src, n_steps_trg, pid, bb, 'opp', total_rew, percent_rewarding_act]
+                    _resdf = [n_steps_src, n_steps_trg, pid, bb, 'opp', total_rew, percent_rewarding_act, pid, _pid, z_dist]
                     resdf = pd.concat([resdf, pd.DataFrame([_resdf], columns=res_columns)], axis=0)
             resdf.to_csv(res_csv, index=False)
-    # '''
 
     resdf = pd.read_csv(res_csv)
     pids = resdf['id'].unique()

@@ -33,7 +33,6 @@ def out_step_ave(df):
 
 if __name__=='__main__':
     dataset_path = 'data/bhv_mdp.csv'
-    '''
     data_dir = 'bhv_mdp'
     csvpaths = [f.name for f in os.scandir(data_dir) if not f.name.startswith('.')]
     df = pd.DataFrame()
@@ -89,7 +88,6 @@ if __name__=='__main__':
     approved_ids = df['id'].unique()
     pd.DataFrame({'id':approved_ids}).to_csv('tmp/approved_ids.csv', index=False)
     df.to_csv(dataset_path, index=False)
-    '''
 
     df = pd.read_csv(dataset_path)
     print('Total IDs: {}'.format(len(df['id'].unique())))
