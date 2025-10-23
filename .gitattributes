@@ -2,3 +2,5 @@ tmp/bnn.pt.params filter=lfs diff=lfs merge=lfs -text
 tmp/cnn.pt filter=lfs diff=lfs merge=lfs -text
 tmp/seqs.csv filter=lfs diff=lfs merge=lfs -text
 tmp/encdec_loss_b_qrl_cmb.csv filter=lfs diff=lfs merge=lfs -text
+tmp/qrl_qlp_pp.csv filter=lfs diff=lfs merge=lfs -text
+tmp/qrl_z_dist_pp.csv filter=lfs diff=lfs merge=lfs -text

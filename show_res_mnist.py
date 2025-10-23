@@ -204,7 +204,8 @@ if __name__ == '__main__':
             x += 2.5
         if dv == 'nllik':
             lg = plt.legend([b1['boxes'][0], b2['boxes'][0]], ['RTNet', 'Task solver']); lg.set_zorder(20)
-        plt.xticks(xticks, xticklabels) plt.savefig('figs/mnist/{}_sx.pdf'.format(dv), bbox_inches='tight', transparent=True)
+        plt.xticks(xticks, xticklabels)
+        plt.savefig('figs/mnist/{}_sx.pdf'.format(dv), bbox_inches='tight', transparent=True)
 
 
     # =================================

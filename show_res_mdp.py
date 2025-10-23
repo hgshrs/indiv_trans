@@ -188,21 +188,23 @@ if __name__=='__main__':
     # =================================
     print('\nz_dist X prediction performance')
     # =================================
+    # cmbres = pd.read_csv('tmp/encdec_loss_b_cmbs.csv')
+    # pids = cmbres['target_id'].unique()
+    # for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
+        # for pp, pid in enumerate(pids):
+            # s0 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & target_id == @pid & source_id == @pid').iloc[0]
+            # z0 = np.array([s0['z1'], s0['z2']])
+            # for _pp, _pid in enumerate(pids):
+                # s1 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & target_id == @pid & source_id == @_pid')
+                # idx = s1.index[0]
+                # s1 = s1.iloc[0]
+                # z1 = np.array([s1['z1'], s1['z2']])
+                # d = np.linalg.norm(z0 - z1)
+                # cmbres.loc[idx, 'z_dist'] = d
+    # cmbres.to_csv('tmp/encdec_loss_b_cmbs.csv', index=False)
+
     cmbres = pd.read_csv('tmp/encdec_loss_b_cmbs.csv')
     pids = cmbres['target_id'].unique()
-    for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
-        for pp, pid in enumerate(pids):
-            s0 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & target_id == @pid & source_id == @pid').iloc[0]
-            z0 = np.array([s0['z1'], s0['z2']])
-            for _pp, _pid in enumerate(pids):
-                s1 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg & target_id == @pid & source_id == @_pid')
-                idx = s1.index[0]
-                s1 = s1.iloc[0]
-                z1 = np.array([s1['z1'], s1['z2']])
-                d = np.linalg.norm(z0 - z1)
-                cmbres.loc[idx, 'z_dist'] = d
-    cmbres.to_csv('tmp/encdec_loss_b_cmbs.csv', index=False)
-
     for n_steps_src, n_steps_trg in [[3, 2], [2, 3]]:
         cmbres1 = cmbres.query('n_steps_src == @n_steps_src & n_steps_trg == @n_steps_trg')
         for vv, dv in enumerate(['nllik', 'match']):
@@ -225,6 +227,7 @@ if __name__=='__main__':
             plt.ylabel(axlabels[dv])
             plt.xlabel('Distance in individual latent rep.')
             plt.savefig('figs/org_vs_opp/{}to{}_{}.pdf'.format(n_steps_src, n_steps_trg, dv), bbox_inches='tight', transparent=True)
+
 
     # =================================
     # Traning and validation curves

@@ -466,13 +466,12 @@ if __name__ == '__main__':
             # Load models
             net_path = 'tmp/mnist/edm_{}_leave_{}.pt'.format(abbr_tasks, pid)
             enc, dec, evn = init_nets(device=device, verbose=False)
+            _, _, train_loss, valid_loss, train_match, valid_match = load_net(enc, dec, net_path, state='.latest', device=device)
+            if args.epochs <= len(train_loss):
+                n_epochs = 0
             else:
-                _, _, train_loss, valid_loss, train_match, valid_match = load_net(enc, dec, net_path, state='.latest', device=device)
-                if args.epochs <= len(train_loss):
-                    n_epochs = 0
-                else:
-                    n_epochs = args.epochs - len(train_loss)
-                    enc, dec, train_loss, valid_loss, train_match, valid_match = load_net(enc, dec, net_path, state='.latest', device=device)
+                n_epochs = args.epochs - len(train_loss)
+                enc, dec, train_loss, valid_loss, train_match, valid_match = load_net(enc, dec, net_path, state='.latest', device=device)
             opt_enc = optim.Adam(enc.parameters(), lr=args.lr)
             opt_dec = optim.Adam(dec.parameters(), lr=args.lr)
             loss_fn = nn.CrossEntropyLoss()
